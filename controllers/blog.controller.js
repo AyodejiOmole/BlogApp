@@ -1,4 +1,6 @@
 import Blog from "../model/Blog";
+import User from "../model/User";
+import mongoose from "mongoose";
 
 export const getAllBlogs = async(req, res, next) => {
     let blogs;
@@ -18,6 +20,16 @@ export const getAllBlogs = async(req, res, next) => {
 export const addBlog = async(req, res, next) => {
     const { title, description, image, user } = req.body;
 
+    let existingUser;
+    try {
+        existingUser = await User.findById(user);
+    } catch(error) {
+        return console.log(error);
+    }
+    if(!existingUser) {
+        return res.status(400).json({ message: "Unable to find user by this ID."});
+    }
+
     const blog = new Blog({
         title,
         description,
@@ -26,9 +38,16 @@ export const addBlog = async(req, res, next) => {
     });
 
     try {
-        blog.save();
+        const session = await mongoose.startSession();
+        session.startTransaction();
+
+        await blog.save({ session });
+        existingUser.blogs.push(blog);
+        await existingUser.save({ session });
+        await session.commitTransaction();
     } catch (error) {
-        return console.log(error);
+        console.log(error);
+        return res.status(500).json({ message: error });
     }
 
     return res.status(200).json({ blog });
@@ -75,7 +94,8 @@ export const deleteBlog = async(req, res, next) => {
 
     let blog;
     try {
-        blog = await Blog.findByIdAndRemove(blogId);
+        blog = await Blog.findByIdAndRemove(blogId).populate("user");
+        await blog.user.blogs.pull(blog);
     } catch (error) {
         return console.log(error);
     }
